@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BrickByBrick — How It Works (55-second walkthrough)</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0 }
+  html, body {
+    width: 100%; height: 100%;
+    background: #04080f;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    overflow: hidden;
+  }
+  #wrap {
+    position: relative;
+    width: min(100vw, calc(100vh * 16/9));
+    aspect-ratio: 16/9;
+    background: #0a0e1a;
+    overflow: hidden;
+    border-radius: 8px;
+    box-shadow: 0 0 60px rgba(0,0,0,.7);
+  }
+  canvas { width: 100%; height: 100%; display: block; }
+
+  /* ── Progress bar ────────────────────────── */
+  #pbar-bg {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    height: 4px; background: rgba(255,255,255,.08);
+    pointer-events: none;
+  }
+  #pbar-fill {
+    height: 100%; width: 0;
+    background: linear-gradient(90deg,#00d4ff,#00e676);
+    transition: width .15s linear;
+  }
+
+  /* ── Caption strip ───────────────────────── */
+  #caption {
+    position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
+    max-width: 88%; min-height: 22px;
+    padding: 4px 16px; border-radius: 4px;
+    background: rgba(4,8,18,.82);
+    color: #e0e8f8; font-size: 13.5px; line-height: 1.45;
+    text-align: center; pointer-events: none;
+    transition: opacity .3s;
+  }
+
+  /* ── Cursor overlay ──────────────────────── */
+  #cursor {
+    position: absolute; pointer-events: none; z-index: 99;
+    width: 0; height: 0; /* drawn on canvas */
+  }
+
+  /* ── Play overlay ────────────────────────── */
+  #play-overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    background: rgba(4,8,18,.72);
+    cursor: pointer; z-index: 10;
+    gap: 16px;
+  }
+  #play-overlay h2 {
+    color: #e0e8f8; font-size: 22px; font-weight: 700;
+    letter-spacing: -.01em;
+  }
+  #play-overlay p {
+    color: #8a9bb5; font-size: 13px;
+  }
+  #play-btn {
+    width: 64px; height: 64px; border-radius: 50%;
+    border: 2px solid rgba(0,212,255,.6);
+    background: rgba(0,212,255,.12);
+    color: #00d4ff; font-size: 24px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    transition: background .2s, box-shadow .2s;
+  }
+  #play-btn:hover {
+    background: rgba(0,212,255,.22);
+    box-shadow: 0 0 24px rgba(0,212,255,.35);
+  }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="vc"></canvas>
+  <div id="pbar-bg"><div id="pbar-fill"></div></div>
+  <div id="caption"></div>
+
+  <div id="play-overlay">
+    <h2>BrickByBrick — How It Works</h2>
+    <p>55-second walkthrough · Step through all 4 phases</p>
+    <div id="play-btn">&#9654;</div>
+  </div>
+</div>
+
+<script>
+// ──────────────────────────────────────────────────────────────────
+// Canvas setup
+// ──────────────────────────────────────────────────────────────────
+const TOTAL   = 55          // seconds
+const W = 1280, H = 720     // logical resolution
+
+const wrap    = document.getElementById('wrap')
+const canvas  = document.getElementById('vc')
+const ctx     = canvas.getContext('2d')
+const pFill   = document.getElementById('pbar-fill')
+const caption = document.getElementById('caption')
+
+canvas.width  = W
+canvas.height = H
+
+// ──────────────────────────────────────────────────────────────────
+// Colour palette (mirrors app's style.css)
+// ──────────────────────────────────────────────────────────────────
+const C = {
+  bg:     '#0a0e1a',
+  bg2:    '#0f1629',
+  bg3:    '#141d35',
+  border: '#1e2d4a',
+  acc:    '#00d4ff',
+  green:  '#00e676',
+  warn:   '#ffa726',
+  danger: '#ef5350',
+  text:   '#e0e8f8',
+  text2:  '#8a9bb5',
+  muted:  '#4a5a78',
+  L:      '#66BB6A',
+  S:      '#26C6DA',
+  R:      '#FFA726',
+  Cv:     '#42A5F5',
+  E:      '#EC407A',
+  Ec:     '#AB47BC',
+}
+
+// Theme colors
+const THEME_COLS = {
+  mobility:'#4FC3F7', governance:'#90A4AE', ecology:'#81C784',
+  housing:'#FF8A65',  economy:'#CE93D8',    infrastructure:'#4DD0E1',
+  healthcare:'#F48FB1', education:'#FFD54F', energy:'#FFB74D',
+  food:'#A5D6A7',     digital:'#80DEEA',    community:'#EF9A9A',
+}
+const THEME_ICONS = {
+  mobility:'🚇', governance:'🏛', ecology:'🌿',
+  housing:'🏘', economy:'🏙', infrastructure:'⚡',
+  healthcare:'🏥', education:'📚', energy:'☀️',
+  food:'🌾', digital:'💡', community:'🤝',
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Drawing utilities
+// ──────────────────────────────────────────────────────────────────
+function bg(color) {
+  ctx.fillStyle = color
+  ctx.fillRect(0, 0, W, H)
+}
+
+function rr(x, y, w, h, r, fill, stroke, lw = 1) {
+  ctx.beginPath()
+  ctx.roundRect(x, y, w, h, r)
+  if (fill)   { ctx.fillStyle   = fill;   ctx.fill()   }
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lw; ctx.stroke() }
+}
+
+function txt(s, x, y, size, color, align = 'left', weight = 'normal') {
+  ctx.font = `${weight} ${size}px 'Segoe UI',system-ui,sans-serif`
+  ctx.fillStyle   = color
+  ctx.textAlign   = align
+  ctx.textBaseline = 'middle'
+  ctx.fillText(s, x, y)
+}
+
+function lerp(a, b, t) { return a + (b - a) * t }
+
+function easeInOut(t) { return t < .5 ? 2*t*t : -1+(4-2*t)*t }
+
+// ──────────────────────────────────────────────────────────────────
+// Cursor
+// ──────────────────────────────────────────────────────────────────
+const cur = {
+  x: W * .5, y: H * .35,
+  tx: W * .5, ty: H * .35,
+  clicking: 0,   // countdown frames for click ripple
+}
+
+function moveCursor(tx, ty) { cur.tx = tx; cur.ty = ty }
+
+function drawCursor(alpha = 1) {
+  if (cur.clicking > 0) {
+    const progress = 1 - cur.clicking / 20
+    ctx.save()
+    ctx.globalAlpha = alpha * (1 - progress) * .7
+    ctx.strokeStyle = C.acc
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.arc(cur.x, cur.y, 10 + progress * 24, 0, Math.PI * 2)
+    ctx.stroke()
+    ctx.restore()
+    cur.clicking--
+  }
+  ctx.save()
+  ctx.globalAlpha = alpha
+  ctx.filter = 'drop-shadow(0 2px 10px rgba(0,212,255,.55))'
+  ctx.fillStyle   = 'white'
+  ctx.strokeStyle = '#050a18'
+  ctx.lineWidth   = 1.8
+  ctx.lineJoin    = 'round'
+  const x = cur.x, y = cur.y
+  const s = 1.22 // scale — "slightly big cursor"
+  ctx.beginPath()
+  ctx.moveTo(x + 6*s, y + 3*s)
+  ctx.lineTo(x + 6*s, y + 30*s)
+  ctx.lineTo(x + 11*s, y + 24*s)
+  ctx.lineTo(x + 17*s, y + 36*s)
+  ctx.lineTo(x + 21*s, y + 34*s)
+  ctx.lineTo(x + 15*s, y + 22*s)
+  ctx.lineTo(x + 23*s, y + 22*s)
+  ctx.closePath()
+  ctx.fill()
+  ctx.stroke()
+  ctx.restore()
+}
+
+function click() { cur.clicking = 20 }
+
+// ──────────────────────────────────────────────────────────────────
+// Top bar (shared across scenes)
+// ──────────────────────────────────────────────────────────────────
+function drawTopBar(stepDone = []) {
+  rr(0, 0, W, 52, 0, C.bg2, null)
+  ctx.fillStyle = C.border
+  ctx.fillRect(0, 51, W, 1)
+
+  // Logo
+  txt('BRICK BY BRICK', 24, 26, 12, C.acc, 'left', '800')
+
+  // Step pills
+  const steps = ['Geography','Theme','Configure','Your City']
+  let sx = W / 2 - 300
+  steps.forEach((s, i) => {
+    const done = stepDone.includes(i)
+    const active = stepDone.length === i
+    const col  = done ? C.green : active ? C.acc : C.muted
+    const bg3  = done ? 'rgba(0,230,118,.10)' : active ? 'rgba(0,212,255,.10)' : 'rgba(255,255,255,.04)'
+    rr(sx, 14, 120, 24, 12, bg3, col + '44', 1)
+    txt((done ? '✓ ' : (i+1)+'. ') + s, sx + 60, 26, 11, col, 'center', '600')
+    if (i < 3) { txt('›', sx + 130, 26, 14, C.muted, 'center') }
+    sx += 150
+  })
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Scene 0: Intro (0 – 4 s)
+// ──────────────────────────────────────────────────────────────────
+function drawIntro(t) {
+  // t: 0..1
+  bg(C.bg)
+
+  // Gradient backdrop
+  const g = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, 500)
+  g.addColorStop(0,   'rgba(0,180,220,.10)')
+  g.addColorStop(.5,  'rgba(0,100,180,.05)')
+  g.addColorStop(1,   'transparent')
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H)
+
+  const a = Math.min(t * 3, 1)
+  ctx.globalAlpha = a
+
+  // Big title
+  ctx.font = '800 72px Segoe UI, system-ui, sans-serif'
+  ctx.fillStyle = C.text
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText('BRICK BY BRICK', W / 2, H / 2 - 50)
+
+  // Subtitle
+  ctx.font = '300 24px Segoe UI, system-ui, sans-serif'
+  ctx.fillStyle = C.acc
+  ctx.fillText('Generative City World Builder', W / 2, H / 2 + 10)
+
+  // Pills
+  const pills = ['10 geographies', '12 themes', '96 parameters', 'AI narrative']
+  let px = W / 2 - pills.length * 90
+  ctx.font = '600 13px Segoe UI, system-ui, sans-serif'
+  pills.forEach((p, i) => {
+    const col = [C.acc, C.green, C.warn, C.L][i]
+    rr(px + i * 185, H/2 + 58, 170, 28, 14, col + '18', col + '55', 1)
+    txt(p, px + i * 185 + 85, H/2 + 72, 13, col, 'center', '600')
+  })
+
+  ctx.globalAlpha = 1
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Scene 1: Geography / Map (4 – 17 s)
+// ──────────────────────────────────────────────────────────────────
+const MAP_CITY_PINS = {
+  port:        { rx: .115, ry: .48, col: '#3a88c8', lbl: 'Port City'     },
+  coastal:     { rx: .225, ry: .86, col: '#5a9acc', lbl: 'Coastal City'  },
+  river_delta: { rx: .138, ry: .74, col: '#38aa88', lbl: 'River Delta'   },
+  landlocked:  { rx: .300, ry: .46, col: '#58a040', lbl: 'Landlocked'    },
+  mountain:    { rx: .213, ry: .34, col: '#8898bb', lbl: 'Mountain'      },
+  forest:      { rx: .250, ry: .24, col: '#449955', lbl: 'Forest City'   },
+  prairie:     { rx: .388, ry: .54, col: '#aaaa44', lbl: 'Prairie City'  },
+  desert:      { rx: .363, ry: .70, col: '#cc8844', lbl: 'Desert City'   },
+  island:      { rx: .513, ry: .48, col: '#44bba8', lbl: 'Island City'   },
+  geothermal:  { rx: .825, ry: .42, col: '#cc4422', lbl: 'Volcanic City' },
+}
+
+// Map content area
+const MAP = { x: 60, y: 70, w: W - 120, h: H - 200 }
+
+function drawMap(t, highlightId = null, selected = null) {
+  // Ocean
+  rr(MAP.x, MAP.y, MAP.w, MAP.h, 6, '#0b1a2e', C.border, 1)
+
+  // Western continent
+  ctx.fillStyle = '#2a4028'
+  ctx.beginPath()
+  ctx.ellipse(MAP.x + MAP.w*.25, MAP.y + MAP.h*.55, MAP.w*.14, MAP.h*.35, 0, 0, Math.PI*2)
+  ctx.fill()
+  ctx.beginPath()
+  ctx.ellipse(MAP.x + MAP.w*.19, MAP.y + MAP.h*.24, MAP.w*.08, MAP.h*.10, 0, 0, Math.PI*2)
+  ctx.fill()
+  ctx.beginPath()
+  ctx.ellipse(MAP.x + MAP.w*.21, MAP.y + MAP.h*.86, MAP.w*.09, MAP.h*.07, 0, 0, Math.PI*2)
+  ctx.fill()
+  // desert patch
+  ctx.fillStyle = '#5a3818'
+  ctx.beginPath()
+  ctx.ellipse(MAP.x + MAP.w*.365, MAP.y + MAP.h*.70, MAP.w*.06, MAP.h*.08, 0, 0, Math.PI*2)
+  ctx.fill()
+
+  // Eastern continent
+  ctx.fillStyle = '#2a4028'
+  ctx.beginPath()
+  ctx.ellipse(MAP.x + MAP.w*.77, MAP.y + MAP.h*.46, MAP.w*.15, MAP.h*.28, 0, 0, Math.PI*2)
+  ctx.fill()
+
+  // Island
+  ctx.fillStyle = '#2a4028'
+  ctx.beginPath()
+  ctx.arc(MAP.x + MAP.w*.51, MAP.y + MAP.h*.48, MAP.w*.04, 0, Math.PI*2)
+  ctx.fill()
+
+  // Wave shimmer
+  ctx.fillStyle = 'rgba(30,80,140,.25)'
+  for (let wy = MAP.y + 20; wy < MAP.y + MAP.h - 10; wy += 28) {
+    for (let wx = MAP.x + 14; wx < MAP.x + MAP.w - 14; wx += 40) {
+      ctx.fillRect(wx, wy, 18, 2)
+    }
+  }
+
+  // Pins
+  for (const [id, p] of Object.entries(MAP_CITY_PINS)) {
+    const px = MAP.x + p.rx * MAP.w
+    const py = MAP.y + p.ry * MAP.h
+    const hov = id === highlightId
+    const sel = id === selected
+
+    if (hov || sel) {
+      ctx.fillStyle = sel ? 'rgba(0,212,255,.18)' : 'rgba(255,255,255,.08)'
+      ctx.beginPath(); ctx.arc(px, py, 14, 0, Math.PI*2); ctx.fill()
+    }
+
+    // Stem
+    ctx.fillStyle = sel ? C.acc : p.col
+    ctx.fillRect(px - 1.5, py, 3, 12)
+    // Body
+    rr(px - 8, py - 16, 16, 14, 3, sel ? C.acc : p.col, null)
+    // Building icon
+    ctx.fillStyle = sel ? '#00182a' : 'rgba(255,255,255,.7)'
+    ctx.fillRect(px - 4, py - 14, 3, 6)
+    ctx.fillRect(px + 1, py - 14, 3, 6)
+    ctx.fillRect(px - 1, py - 10, 2, 3)
+
+    // Label if hovered or selected
+    if (hov || sel) {
+      ctx.font = 'bold 10px monospace'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      const tw = ctx.measureText(p.lbl).width + 10
+      const lx = Math.max(MAP.x + 2, Math.min(px - tw/2, MAP.x + MAP.w - tw - 2))
+      rr(lx, py - 34, tw, 14, 3,
+         sel ? 'rgba(0,36,64,.97)' : 'rgba(8,16,32,.93)',
+         sel ? C.acc : 'rgba(155,185,255,.5)', 1)
+      ctx.fillStyle = sel ? C.acc : '#c8d8f0'
+      ctx.fillText(p.lbl, lx + tw/2, py - 27)
+    }
+  }
+}
+
+function sceneMap(t) {
+  // t: 0..1 over 13 seconds
+  bg(C.bg)
+  drawTopBar([])
+
+  const sec = t * 13
+
+  // Title
+  txt('Choose Your Geography', W/2, 105, 20, C.text, 'center', '700')
+  txt('Click a location on the map — each geography adjusts all 12 urban themes', W/2, 128, 12, C.text2, 'center')
+
+  // Decide cursor/highlight state
+  let highlight = null, selected = null
+  if (sec > 2.5 && sec < 6)   highlight = 'desert'
+  if (sec > 5)                 selected  = 'desert'
+
+  drawMap(t, highlight, selected)
+
+  // Info bar (appears after selection at ~5s)
+  if (sec > 5.5) {
+    const a = Math.min((sec - 5.5) / 0.8, 1)
+    ctx.globalAlpha = a
+    rr(MAP.x, MAP.y + MAP.h + 10, MAP.w, 44, 6, C.bg3, C.border, 1)
+    txt('🌅', MAP.x + 24, MAP.y + MAP.h + 32, 16, C.text, 'center')
+    txt('Desert City', MAP.x + 52, MAP.y + MAP.h + 26, 14, '#cc8844', 'left', '700')
+    txt('Thriving against the odds in an arid landscape of extremes and solar abundance', MAP.x + 52, MAP.y + MAP.h + 42, 11, C.text2, 'left')
+    ctx.globalAlpha = 1
+  }
+
+  // Continue button (glows after ~7s)
+  const btnA = Math.min(Math.max((sec - 7) / 1, 0), 1)
+  ctx.globalAlpha = 0.4 + btnA * 0.6
+  rr(W/2 - 120, H - 74, 240, 40, 20,
+     btnA > .8 ? 'rgba(0,212,255,.22)' : 'rgba(0,212,255,.08)',
+     btnA > .8 ? C.acc : C.acc + '44', 1.5)
+  txt('Choose Your Expertise  ›', W/2, H - 54, 14, C.acc, 'center', '600')
+  ctx.globalAlpha = 1
+
+  // Cursor movements
+  if (sec < 2)         moveCursor(W * .4, H * .5)
+  else if (sec < 4.5)  moveCursor(MAP.x + MAP.w * .363, MAP.y + MAP.h * .70)  // desert pin
+  else if (sec < 5.2)  { if (sec > 4.8) click(); moveCursor(MAP.x + MAP.w * .363, MAP.y + MAP.h * .70) }
+  else if (sec < 8)    moveCursor(MAP.x + MAP.w * .363, MAP.y + MAP.h * .70)
+  else if (sec < 9.5)  moveCursor(W/2, H - 54)   // continue button
+  else                 { if (sec > 9.5 && sec < 10.1) click(); moveCursor(W/2, H - 54) }
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Scene 2: Theme selection (17 – 27 s)
+// ──────────────────────────────────────────────────────────────────
+function sceneTheme(t) {
+  const sec = t * 10
+  bg(C.bg)
+  drawTopBar([0])
+
+  txt('Choose Your Expertise', W/2, 100, 22, C.text, 'center', '800')
+  txt('You master one domain — the rest of the city adapts around your decisions', W/2, 126, 13, C.text2, 'center')
+
+  const themes = Object.keys(THEME_COLS)
+  const cols = 4, rows = 3
+  const cW = 240, cH = 78, gap = 16
+  const gridW = cols * cW + (cols - 1) * gap
+  const gx0 = (W - gridW) / 2, gy0 = 162
+
+  const hoverOrder = ['ecology','mobility','governance','energy']
+  let hoveredIdx = -1
+  if (sec > 1.5) {
+    // Cursor scans over cards
+    const scanT = Math.min((sec - 1.5) / 5, 1)
+    hoveredIdx = Math.floor(scanT * hoverOrder.length)
+  }
+  const hovId = hoverOrder[Math.min(hoveredIdx, hoverOrder.length - 1)]
+
+  themes.forEach((id, i) => {
+    const col  = i % cols
+    const row  = Math.floor(i / cols)
+    const x    = gx0 + col * (cW + gap)
+    const y    = gy0 + row * (cH + gap)
+    const hov  = id === hovId && sec > 1.5 && sec < 7
+    const sel  = id === 'energy' && sec > 6.5
+    const col2 = THEME_COLS[id]
+
+    rr(x, y, cW, cH, 8,
+       sel ? col2 + '22' : hov ? col2 + '14' : C.bg3,
+       sel ? col2 : hov ? col2 + '66' : C.border, sel ? 1.5 : 1)
+
+    txt(THEME_ICONS[id] || '●', x + 28, y + cH/2, 18, col2, 'center')
+    txt(id.charAt(0).toUpperCase() + id.slice(1).replace('_',' '), x + 50, y + cH/2 - 8, 13, sel ? col2 : C.text, 'left', '600')
+    txt('8 parameters', x + 50, y + cH/2 + 10, 10, C.muted, 'left')
+  })
+
+  // Configure button (appears when energy selected)
+  if (sec > 7) {
+    const a = Math.min((sec - 7) / .8, 1)
+    ctx.globalAlpha = 0.4 + a * 0.6
+    rr(W/2 - 120, H - 74, 240, 40, 20,
+       a > .9 ? 'rgba(0,212,255,.22)' : 'rgba(0,212,255,.08)',
+       a > .9 ? C.acc : C.acc + '44', 1.5)
+    txt('Configure Theme  ›', W/2, H - 54, 14, C.acc, 'center', '600')
+    ctx.globalAlpha = 1
+  }
+
+  // Cursor moves
+  const energyCard = (() => {
+    const i = themes.indexOf('energy')
+    return { x: gx0 + (i%cols)*(cW+gap) + cW/2, y: gy0 + Math.floor(i/cols)*(cH+gap) + cH/2 }
+  })()
+
+  if (sec < 1.5)       moveCursor(W/2, H/2)
+  else if (sec < 2.5)  moveCursor(gx0 + 0*(cW+gap)+cW/2, gy0+cH/2)   // ecology
+  else if (sec < 3.5)  moveCursor(gx0 + 1*(cW+gap)+cW/2, gy0+cH/2)   // mobility
+  else if (sec < 4.5)  moveCursor(gx0 + 2*(cW+gap)+cW/2, gy0+cH/2)   // governance
+  else if (sec < 6.5)  moveCursor(energyCard.x, energyCard.y)          // energy
+  else if (sec < 7)    { click(); moveCursor(energyCard.x, energyCard.y) }
+  else                 moveCursor(W/2, H - 54)
+  if (sec > 8.5 && sec < 9.1) click()
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Scene 3: Configuration (27 – 46 s)
+// ──────────────────────────────────────────────────────────────────
+const ENERGY_INPUTS = [
+  ['Solar Panel Coverage',     0, 80],
+  ['Wind Energy Harnessing',   0, 70],
+  ['Energy Storage Capacity',  0, 65],
+  ['District Heating/Cooling', 0, 60],
+  ['Energy Poverty Reduction', 0, 75],
+  ['Building Retrofitting',    0, 55],
+  ['Carbon Reduction Target',  0, 85],
+  ['Peak Demand Management',   0, 60],
+]
+
+// Simple sunburst: 8 ring segments (fan slices on a circle)
+function drawSunburst(cx, cy, r, inputs, t) {
+  const n = inputs.length
+  const dAng = (Math.PI * 2) / n
+  inputs.forEach(([label, , target], i) => {
+    const a0 = i * dAng - Math.PI / 2
+    const a1 = a0 + dAng * .88
+    const val  = target  // show final values in config scene
+    const rOuter = r * (.35 + val / 100 * .65)
+    const rInner = r * .32
+    const color = [C.acc,C.S,C.green,C.warn,C.E,C.Ec,C.L,C.danger][i]
+
+    // Segment
+    ctx.beginPath()
+    ctx.moveTo(cx + Math.cos(a0) * rInner, cy + Math.sin(a0) * rInner)
+    ctx.arc(cx, cy, rOuter, a0, a1)
+    ctx.arc(cx, cy, rInner, a1, a0, true)
+    ctx.closePath()
+    ctx.fillStyle = color + '44'
+    ctx.fill()
+    ctx.strokeStyle = color + 'aa'
+    ctx.lineWidth = 1.5
+    ctx.stroke()
+
+    // Label at mid-arc
+    const aMid = (a0 + a1) / 2
+    const lr = (rOuter + rInner) / 2 + 10
+    const lx = cx + Math.cos(aMid) * lr
+    const ly = cy + Math.sin(aMid) * lr
+    const shortLabel = label.split(' ').slice(0, 2).join(' ')
+    ctx.font = '9px Segoe UI,system-ui,sans-serif'
+    ctx.fillStyle = color
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(shortLabel, lx, ly)
+  })
+
+  // Centre circle
+  rr(cx - 28, cy - 28, 56, 56, 28, C.bg2, C.border + '88', 1)
+  txt('☀️', cx, cy - 4, 20, '#FFB74D', 'center')
+  txt('ENERGY', cx, cy + 14, 8, C.muted, 'center', '700')
+}
+
+// Simplified isometric building
+function isoBuilding(ctx, sx, sy, tw, th, bh, color) {
+  const shade = (f) => {
+    const hex = color.replace('#','')
+    const r = parseInt(hex.slice(0,2),16), g = parseInt(hex.slice(2,4),16), b = parseInt(hex.slice(4,6),16)
+    const c = v => Math.max(0, Math.min(255, Math.round(v*f)))
+    return `rgb(${c(r)},${c(g)},${c(b)})`
+  }
+  // Left face
+  ctx.fillStyle = shade(.72)
+  ctx.beginPath()
+  ctx.moveTo(sx-tw/2, sy+th/2-bh); ctx.lineTo(sx, sy+th-bh)
+  ctx.lineTo(sx, sy+th); ctx.lineTo(sx-tw/2, sy+th/2); ctx.closePath(); ctx.fill()
+  // Right face
+  ctx.fillStyle = shade(.50)
+  ctx.beginPath()
+  ctx.moveTo(sx+tw/2, sy+th/2-bh); ctx.lineTo(sx, sy+th-bh)
+  ctx.lineTo(sx, sy+th); ctx.lineTo(sx+tw/2, sy+th/2); ctx.closePath(); ctx.fill()
+  // Top face
+  ctx.fillStyle = shade(1.28)
+  ctx.beginPath()
+  ctx.moveTo(sx, sy-bh); ctx.lineTo(sx+tw/2, sy+th/2-bh)
+  ctx.lineTo(sx, sy+th-bh); ctx.lineTo(sx-tw/2, sy+th/2-bh); ctx.closePath(); ctx.fill()
+}
+
+function drawMiniCity(ox, oy, solarLevel, windLevel) {
+  const tw = 42, th = 21
+  const GS = 7
+  const screenPos = (gx, gy) => ({
+    x: ox + (gx - gy) * tw / 2 + GS * tw / 2,
+    y: oy + (gx + gy) * th / 2,
+  })
+
+  const buildings = [
+    [1,1,28],[2,1,22],[1,2,32],[3,1,18],[2,2,26],[3,2,14],
+    [1,3,20],[4,1,16],[2,3,22],[3,3,18],[4,2,24],[5,1,20],
+  ]
+  const colors = ['#b71c1c','#d32f2f','#c62828','#e53935','#ff5722','#ef6c00']
+
+  // Sort painter's order
+  buildings.sort((a,b) => (a[0]+a[1]) - (b[0]+b[1]))
+
+  for (const [gx, gy, bh] of buildings) {
+    const { x, y } = screenPos(gx, gy)
+    const col = colors[(gx*3+gy*7) % colors.length]
+    isoBuilding(ctx, x, y, tw, th, bh, col)
+
+    // Solar panels on taller buildings
+    if (solarLevel > .4 && bh > 20 && (gx*17+gy*11)%100 < solarLevel * 70) {
+      const f = .55
+      const ry = y - bh
+      const pt = (u, v) => [x + (u-v)*tw*f/2, ry + (u+v)*th*f/2]
+      ctx.fillStyle = '#1a3f7a'
+      ctx.globalAlpha = .82
+      ctx.beginPath()
+      ctx.moveTo(...pt(0,0)); ctx.lineTo(...pt(1,0))
+      ctx.lineTo(...pt(1,1)); ctx.lineTo(...pt(0,1)); ctx.closePath()
+      ctx.fill()
+      ctx.globalAlpha = 1
+      ctx.strokeStyle = '#4a90d9'; ctx.lineWidth = .5; ctx.stroke()
+    }
+  }
+
+  // Wind turbines in some park-like spots
+  if (windLevel > .4) {
+    for (const [gx, gy] of [[0,4],[5,0],[6,3]]) {
+      if ((gx*7+gy*13)%100 < windLevel * 80) {
+        const { x, y } = screenPos(gx, gy)
+        ctx.strokeStyle = '#b0bec5'; ctx.lineWidth = 1.5
+        ctx.beginPath(); ctx.moveTo(x, y+th*.6); ctx.lineTo(x, y+th*.6-tw*.8); ctx.stroke()
+        const a0 = (Date.now()/1000 * 1.2) % (Math.PI*2)
+        ctx.strokeStyle = '#ecf0f1'; ctx.lineWidth = 1.2
+        for (let i = 0; i < 3; i++) {
+          const a = a0 + i*Math.PI*2/3
+          ctx.beginPath(); ctx.moveTo(x, y+th*.6-tw*.8)
+          ctx.lineTo(x + Math.cos(a)*tw*.22, y+th*.6-tw*.8 + Math.sin(a)*tw*.10)
+          ctx.stroke()
+        }
+      }
+    }
+  }
+}
+
+function sceneConfig(t) {
+  const sec = t * 19  // 19 second scene
+  bg(C.bg)
+  drawTopBar([0, 1])
+
+  // Left column: sunburst
+  const sbCx = 310, sbCy = H/2 + 20, sbR = 190
+  drawSunburst(sbCx, sbCy, sbR, ENERGY_INPUTS, t)
+
+  // Section label
+  txt('☀️  Energy', sbCx, 90, 15, '#FFB74D', 'center', '700')
+  txt('Drag segments to configure', sbCx, 110, 11, C.text2, 'center')
+
+  // Right column: live city preview
+  const cvX = W/2 + 40, cvY = 70, cvW = W/2 - 60, cvH = H - 160
+
+  rr(cvX, cvY, cvW, cvH, 8, C.bg3, C.border, 1)
+  txt('Live City Preview', cvX + cvW/2, cvY + 20, 12, C.text2, 'center', '600')
+
+  // Solar and wind levels ramp up during the scene
+  const solarL = Math.min(Math.max((sec - 2) / 8, 0), 1)
+  const windL  = Math.min(Math.max((sec - 4) / 8, 0), 1)
+
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(cvX + 1, cvY + 32, cvW - 2, cvH - 33)
+  ctx.clip()
+  drawMiniCity(cvX + cvW/2 - 100, cvY + 40, solarL, windL)
+  ctx.restore()
+
+  // Score HUD bars on the right side of the city panel
+  const hudX = cvX + cvW - 90, hudY = cvY + 40
+  const axes = [['L', C.L], ['S', C.S], ['R', C.R], ['C', C.Cv], ['E', C.E], ['Ec', C.Ec]]
+  axes.forEach(([id, col], i) => {
+    const pct = [55, 30+solarL*40, 40+solarL*20, 45, 38, 50][i]
+    txt(id, hudX, hudY + i*28 + 8, 10, col, 'left', '700')
+    rr(hudX + 16, hudY + i*28, 68, 10, 5, C.bg2, null)
+    rr(hudX + 16, hudY + i*28, 68*pct/100, 10, 5, col + 'aa', null)
+    txt(Math.round(pct), hudX + 87, hudY + i*28 + 8, 9, col, 'left')
+  })
+
+  // Build button
+  const btnA = Math.min(Math.max((sec - 15) / 2, 0), 1)
+  if (btnA > 0) {
+    ctx.globalAlpha = .4 + btnA * .6
+    rr(W/2 - 110, H - 68, 220, 40, 20,
+       btnA > .8 ? 'rgba(0,212,255,.22)' : 'rgba(0,212,255,.08)',
+       btnA > .8 ? C.acc : C.acc + '44', 1.5)
+    txt('Build My City  ›', W/2, H - 48, 14, C.acc, 'center', '700')
+    ctx.globalAlpha = 1
+  }
+
+  // Cursor wanders over sunburst then preview canvas then build button
+  if      (sec < 2)   moveCursor(sbCx - 60, sbCy - 80)
+  else if (sec < 6)   moveCursor(sbCx + Math.cos(sec*1.4)*sbR*.7, sbCy + Math.sin(sec*1.4)*sbR*.4)
+  else if (sec < 10)  moveCursor(sbCx + Math.cos(sec*.9)*sbR*.6, sbCy + Math.sin(sec*.9)*sbR*.5)
+  else if (sec < 14)  moveCursor(cvX + cvW * .4, cvY + cvH * .45)
+  else if (sec < 16)  moveCursor(cvX + cvW * .5, cvY + cvH * .35)
+  else                moveCursor(W/2, H - 48)
+  if (sec > 17 && sec < 17.6) click()
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Scene 4: City View (46 – 55 s)
+// ──────────────────────────────────────────────────────────────────
+function sceneCity(t) {
+  const sec = t * 9
+  bg(C.bg)
+
+  // Top bar
+  rr(0, 0, W, 52, 0, C.bg2, null)
+  ctx.fillStyle = C.border; ctx.fillRect(0, 51, W, 1)
+  txt('BRICK BY BRICK', 24, 26, 12, C.acc, 'left', '800')
+  txt('↩ Redesign', W - 80, 26, 12, C.text2, 'center')
+  // Badges
+  rr(W/2 - 130, 12, 110, 28, 14, C.bg3, C.border, 1)
+  txt('🌅 Desert City', W/2 - 75, 26, 12, C.text, 'center')
+  rr(W/2 + 10, 12, 110, 28, 14, '#FFB74D22', '#FFB74D44', 1)
+  txt('☀️ Energy Focus', W/2 + 65, 26, 12, '#FFB74D', 'center')
+
+  // Left panel
+  const LP = { x: 8, y: 60, w: 250, h: H - 68 }
+  rr(LP.x, LP.y, LP.w, LP.h, 8, C.bg2, C.border, 1)
+  txt('☀️  Energy', LP.x + LP.w/2, LP.y + 22, 13, '#FFB74D', 'center', '700')
+  const inputs = [
+    ['Solar Panel Coverage', 80], ['Wind Energy Harnessing', 70],
+    ['Energy Storage', 65], ['District Heating', 60],
+    ['Energy Poverty Red.', 75], ['Building Retrofitting', 55],
+    ['Carbon Reduction', 85], ['Peak Demand Mgmt', 60],
+  ]
+  inputs.forEach(([label, val], i) => {
+    const iy = LP.y + 44 + i * 34
+    txt(label, LP.x + 12, iy + 8, 10, C.text2, 'left')
+    const bw = LP.w - 60
+    rr(LP.x + 12, iy + 16, bw, 7, 3, C.bg3, null)
+    rr(LP.x + 12, iy + 16, bw * val / 100, 7, 3, '#FFB74D88', null)
+    txt(val + '%', LP.x + LP.w - 30, iy + 20, 9, '#FFB74D', 'right')
+  })
+
+  // Center: mini city
+  const CC = { x: 265, y: 60, w: W - 265 - 280, h: H - 68 }
+  rr(CC.x, CC.y, CC.w, CC.h, 8, C.bg3, C.border, 1)
+  ctx.save()
+  ctx.beginPath(); ctx.rect(CC.x+1, CC.y+1, CC.w-2, CC.h-2); ctx.clip()
+  drawMiniCity(CC.x + CC.w/2 - 140, CC.y + 40, 1, 1)
+  ctx.restore()
+
+  // Right panel
+  const RP = { x: W - 272, y: 60, w: 264, h: H - 68 }
+  rr(RP.x, RP.y, RP.w, RP.h, 8, C.bg2, C.border, 1)
+
+  // Grade circle
+  const gc = sec > 1 ? Math.min((sec-1)/1.5, 1) : 0
+  ctx.save()
+  ctx.globalAlpha = gc
+  ctx.strokeStyle = C.green + '33'; ctx.lineWidth = 8
+  ctx.beginPath(); ctx.arc(RP.x + RP.w/2, RP.y + 80, 52, 0, Math.PI*2); ctx.stroke()
+  ctx.strokeStyle = C.green; ctx.lineWidth = 8; ctx.lineCap = 'round'
+  ctx.beginPath()
+  ctx.arc(RP.x + RP.w/2, RP.y + 80, 52, -Math.PI/2, -Math.PI/2 + gc * Math.PI * 1.6)
+  ctx.stroke()
+  txt('72', RP.x + RP.w/2, RP.y + 74, 28, C.text, 'center', '700')
+  txt('Overall', RP.x + RP.w/2, RP.y + 100, 11, C.text2, 'center')
+  txt('City Score', RP.x + RP.w/2, RP.y + 114, 11, C.text2, 'center')
+  const grade = ['F','D','C','B','A','A+'][Math.min(Math.floor(72/17),5)]
+  txt(grade, RP.x + RP.w/2 + 38, RP.y + 76, 20, C.green, 'center', '800')
+  ctx.restore()
+
+  // Axis bars
+  const axes = [
+    ['Livability',     'L',  68, C.L],
+    ['Sustainability', 'S',  74, C.S],
+    ['Resilience',     'R',  62, C.R],
+    ['Connectivity',   'C',  58, C.Cv],
+    ['Equity',         'E',  55, C.E],
+    ['Economy',        'Ec', 70, C.Ec],
+  ]
+  const ba = sec > 2 ? Math.min((sec-2)/2, 1) : 0
+  axes.forEach(([name, id, score, col], i) => {
+    const ay = RP.y + 152 + i * 34
+    txt(name, RP.x + 14, ay + 9, 11, C.text2, 'left')
+    rr(RP.x + 14, ay + 18, RP.w - 70, 8, 4, C.bg3, null)
+    rr(RP.x + 14, ay + 18, (RP.w - 70) * score/100 * ba, 8, 4, col + 'aa', null)
+    txt(Math.round(score * ba), RP.x + RP.w - 46, ay + 22, 11, col, 'right', '700')
+  })
+
+  // Faults heading
+  const fa = sec > 5 ? Math.min((sec-5)/1,1) : 0
+  ctx.globalAlpha = fa
+  txt('Issues (1)', RP.x + 14, RP.y + 370, 11, C.text2, 'left', '600')
+  rr(RP.x + 10, RP.y + 384, RP.w - 20, 50, 6, 'rgba(255,165,0,.08)', C.warn + '44', 1)
+  txt('⚠️', RP.x + 22, RP.y + 409, 12, C.warn, 'center')
+  txt('Energy Poverty Risk', RP.x + 42, RP.y + 400, 11, C.warn, 'left', '600')
+  txt('Increase energy poverty reduction to lift Equity', RP.x + 42, RP.y + 415, 10, C.text2, 'left')
+  ctx.globalAlpha = 1
+
+  // Cursor movements
+  if      (sec < 1.5)  moveCursor(CC.x + CC.w/2, CC.y + CC.h/2)
+  else if (sec < 3.5)  moveCursor(RP.x + RP.w/2, RP.y + 80)     // grade circle
+  else if (sec < 5.5)  moveCursor(RP.x + RP.w/2, RP.y + 250)    // axis bars
+  else if (sec < 7.5)  moveCursor(RP.x + RP.w/2, RP.y + 409)    // faults
+  else                 moveCursor(CC.x + CC.w*.6, CC.y + CC.h*.4)
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Timeline & render loop
+// ──────────────────────────────────────────────────────────────────
+const SCENES = [
+  { start:  0, end:  4,  draw: (t) => drawIntro(t)        },
+  { start:  4, end: 17,  draw: (t) => sceneMap(t)         },
+  { start: 17, end: 27,  draw: (t) => sceneTheme(t)       },
+  { start: 27, end: 46,  draw: (t) => sceneConfig(t)      },
+  { start: 46, end: 55,  draw: (t) => sceneCity(t)        },
+]
+
+const CAPTIONS = [
+  { start:  0,  end:  4,  text: 'BrickByBrick — design a scored city in four steps' },
+  { start:  4,  end:  9,  text: 'Step 1 · Pick your geography — each of 10 archetypes shifts all 12 urban themes' },
+  { start:  9,  end: 14,  text: 'Selecting Desert City — high solar energy, scarce water, challenging food security' },
+  { start: 14,  end: 17,  text: 'Geography locked. Moving to choose your master theme →' },
+  { start: 17,  end: 21,  text: 'Step 2 · Master one domain — the other 11 auto-configure around your decisions' },
+  { start: 21,  end: 27,  text: 'Energy chosen — configure solar coverage, wind harnessing, carbon targets and more' },
+  { start: 27,  end: 33,  text: 'Step 3 · Drag the sunburst chart to set your 8 inputs — the city updates live' },
+  { start: 33,  end: 40,  text: 'Solar panels appear on rooftops, wind turbines spin in parks as values rise' },
+  { start: 40,  end: 46,  text: 'All 96 parameters set via the influence matrix. Building the final city →' },
+  { start: 46,  end: 51,  text: 'Step 4 · Scored across 6 axes: Livability · Sustainability · Resilience · Connectivity · Equity · Economy' },
+  { start: 51,  end: 55,  text: 'Try it live → samsam8620.github.io/BrickByBrick/' },
+]
+
+let playing   = false
+let startTime = 0
+let animId    = null
+let elapsed   = 0
+
+function getCaption(t) {
+  return CAPTIONS.find(c => t >= c.start && t < c.end)?.text ?? ''
+}
+
+function frame(now) {
+  if (!playing) return
+  elapsed = Math.min((now - startTime) / 1000, TOTAL)
+
+  // Lerp cursor toward target
+  cur.x += (cur.tx - cur.x) * .065
+  cur.y += (cur.ty - cur.y) * .065
+
+  // Find active scene
+  const scene = SCENES.find(s => elapsed >= s.start && elapsed < s.end)
+  if (scene) {
+    const t = (elapsed - scene.start) / (scene.end - scene.start)
+    scene.draw(t)
+  } else if (elapsed >= TOTAL) {
+    sceneCity(1)
+  }
+
+  // Draw cursor on top of scene
+  drawCursor(elapsed > 3 ? 1 : 0)
+
+  // Update caption
+  caption.textContent = getCaption(elapsed)
+
+  // Progress bar
+  pFill.style.width = (elapsed / TOTAL * 100) + '%'
+
+  if (elapsed < TOTAL) {
+    animId = requestAnimationFrame(frame)
+  } else {
+    caption.textContent = '▶  Click to replay'
+    caption.style.cursor = 'pointer'
+    caption.onclick = replay
+  }
+}
+
+function play() {
+  document.getElementById('play-overlay').style.display = 'none'
+  playing   = true
+  startTime = performance.now()
+  animId    = requestAnimationFrame(frame)
+}
+
+function replay() {
+  cancelAnimationFrame(animId)
+  elapsed = 0
+  cur.x = W*.5; cur.y = H*.35
+  cur.tx = W*.5; cur.ty = H*.35
+  caption.style.cursor = ''
+  caption.onclick = null
+  pFill.style.width = '0'
+  playing   = true
+  startTime = performance.now()
+  animId    = requestAnimationFrame(frame)
+}
+
+document.getElementById('play-btn').addEventListener('click', play)
+document.getElementById('play-overlay').addEventListener('click', play)
+</script>
+</body>
+</html>

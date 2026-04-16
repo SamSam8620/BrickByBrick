@@ -8,6 +8,7 @@ import {
   buildCityTopBar, buildLeftSummaryPanel, buildRightPanel,
 } from './ui.js'
 import { CityScene } from './cityScene.js'
+import { DemoPlayer } from './demo.js'
 
 // ─── App State ────────────────────────────────────────────────────
 const state = {
@@ -69,6 +70,7 @@ function showStep(step) {
 
   if (step === 'map') {
     buildMapScreen(app, state, onCityTypeSelect, onCityTypeContinue)
+    _addDemoButton()
 
   } else if (step === 'theme') {
     buildThemeScreen(app, state, onThemeSelect, onThemeBack, onThemeContinue)
@@ -237,6 +239,31 @@ function onRedesign() {
 function onCustomizeToggle() {
   state.customizingThemes = !state.customizingThemes
   buildLeftSummaryPanel(state, onCustomizeToggle, onAutoThemeScoreChange)
+}
+
+// ─── Demo Button ─────────────────────────────────────────────────
+let _demoPlayer = null
+
+function _addDemoButton() {
+  const btn = document.createElement('button')
+  btn.id = 'demo-launch-btn'
+  btn.innerHTML = '&#9654;&nbsp; Watch Demo'
+  btn.addEventListener('click', () => {
+    if (_demoPlayer?.active) return
+    _demoPlayer = new DemoPlayer(onConfigInputChange)
+    _demoPlayer.start()
+    btn.style.opacity = '0'
+    btn.style.pointerEvents = 'none'
+    // Restore button once demo stops
+    const check = setInterval(() => {
+      if (!_demoPlayer?.active) {
+        btn.style.opacity = ''
+        btn.style.pointerEvents = ''
+        clearInterval(check)
+      }
+    }, 500)
+  })
+  document.querySelector('.wb-screen')?.appendChild(btn)
 }
 
 function onAutoThemeScoreChange(themeId, score) {

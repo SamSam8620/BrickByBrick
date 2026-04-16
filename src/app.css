@@ -1,4 +1,31 @@
 /* ══════════════════════════════════════════════════════════════════
+   DEMO LAUNCH BUTTON
+   ══════════════════════════════════════════════════════════════════ */
+
+#demo-launch-btn {
+  position: fixed;
+  bottom: 28px;
+  right: 28px;
+  z-index: 1000;
+  padding: 9px 20px;
+  border-radius: 22px;
+  background: rgba(0, 212, 255, 0.10);
+  border: 1.5px solid rgba(0, 212, 255, 0.38);
+  color: #00d4ff;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: background 0.18s, border-color 0.18s, opacity 0.25s;
+  box-shadow: 0 2px 14px rgba(0, 212, 255, 0.12);
+}
+#demo-launch-btn:hover {
+  background: rgba(0, 212, 255, 0.20);
+  border-color: rgba(0, 212, 255, 0.65);
+  box-shadow: 0 4px 20px rgba(0, 212, 255, 0.22);
+}
+
+/* ══════════════════════════════════════════════════════════════════
    WORLD BUILDER SCREENS (Steps 1-3)
    ══════════════════════════════════════════════════════════════════ */
 
