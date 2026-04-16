@@ -120,6 +120,117 @@ function shade(hex, f) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// CONSTRUCTION SCAFFOLD  (drawn above a growing building)
+// ═══════════════════════════════════════════════════════════════════
+function drawScaffold(ctx, cx, cy, TW, t) {
+  const h = 14
+  ctx.save()
+  ctx.globalAlpha = 0.84
+  ctx.strokeStyle = '#ffa000'
+  ctx.lineWidth = 1.6
+
+  // Vertical poles
+  ctx.beginPath(); ctx.moveTo(cx - TW*0.22, cy);     ctx.lineTo(cx - TW*0.22, cy - h); ctx.stroke()
+  ctx.beginPath(); ctx.moveTo(cx + TW*0.22, cy);     ctx.lineTo(cx + TW*0.22, cy - h); ctx.stroke()
+  // Horizontal beams
+  ctx.beginPath(); ctx.moveTo(cx - TW*0.22, cy - h*0.5); ctx.lineTo(cx + TW*0.22, cy - h*0.5); ctx.stroke()
+  ctx.beginPath(); ctx.moveTo(cx - TW*0.22, cy - h);     ctx.lineTo(cx + TW*0.22, cy - h);     ctx.stroke()
+  // Diagonal brace
+  ctx.lineWidth = 1
+  ctx.beginPath(); ctx.moveTo(cx - TW*0.22, cy); ctx.lineTo(cx + TW*0.22, cy - h); ctx.stroke()
+
+  // Blinking hazard light
+  ctx.globalAlpha = (Math.floor(t / 25) % 2 === 0) ? 0.95 : 0.15
+  ctx.fillStyle = '#ff3d00'
+  ctx.beginPath(); ctx.arc(cx, cy - h - 3, 2.5, 0, Math.PI*2); ctx.fill()
+
+  ctx.restore()
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// INPUT-DRIVEN VISUAL OVERLAYS
+// ═══════════════════════════════════════════════════════════════════
+
+// Solar panel array on a building rooftop (isometric grid)
+function drawSolarPanels(ctx, sx, sy, TW, TH, boxH) {
+  const ry = sy - boxH
+  const f  = 0.60
+  // pt(u,v) → screen point on scaled roof diamond; u,v ∈ [0,1]
+  const pt = (u, v) => [sx + (u - v) * TW * f / 2, ry + (u + v) * TH * f / 2]
+  ctx.save()
+  ctx.globalAlpha = 0.82
+  ctx.fillStyle = '#1a3f7a'
+  ctx.beginPath()
+  ctx.moveTo(...pt(0, 0)); ctx.lineTo(...pt(1, 0))
+  ctx.lineTo(...pt(1, 1)); ctx.lineTo(...pt(0, 1))
+  ctx.closePath()
+  ctx.fill()
+  ctx.strokeStyle = '#4a90d9'; ctx.lineWidth = 0.7; ctx.stroke()
+  // panel grid lines
+  ctx.strokeStyle = '#2471a3'; ctx.lineWidth = 0.4
+  ctx.beginPath()
+  for (const u of [1 / 3, 2 / 3]) {
+    ctx.moveTo(...pt(u, 0)); ctx.lineTo(...pt(u, 1))
+  }
+  ctx.moveTo(...pt(0, 0.5)); ctx.lineTo(...pt(1, 0.5))
+  ctx.stroke()
+  ctx.restore()
+}
+
+// Wind turbine standing in a park tile
+function drawWindTurbine(ctx, sx, sy, TW, TH, t) {
+  const bx = sx, by = sy + TH * 0.55
+  const ph = TW * 0.85
+  const hx = bx, hy = by - ph
+  ctx.save()
+  ctx.strokeStyle = '#b0bec5'; ctx.lineWidth = 2
+  ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(hx, hy); ctx.stroke()
+  const a0 = (t * 0.022) % (Math.PI * 2)
+  const bl = TW * 0.24
+  ctx.strokeStyle = '#ecf0f1'; ctx.lineWidth = 1.6
+  for (let i = 0; i < 3; i++) {
+    const a = a0 + i * Math.PI * 2 / 3
+    ctx.beginPath()
+    ctx.moveTo(hx, hy)
+    ctx.lineTo(hx + Math.cos(a) * bl, hy + Math.sin(a) * bl * 0.42)
+    ctx.stroke()
+  }
+  ctx.fillStyle = '#90a4ae'
+  ctx.beginPath(); ctx.arc(hx, hy, 2.5, 0, Math.PI * 2); ctx.fill()
+  ctx.restore()
+}
+
+// Crop patch grid on a park tile (urban agriculture)
+function drawUrbanGarden(ctx, sx, sy, TW, TH) {
+  const rows = 3, cols = 3
+  const sub_TW = TW * 0.23, sub_TH = TH * 0.23
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const u = (c + 0.5) / cols * 0.70 + 0.15
+      const v = (r + 0.5) / rows * 0.70 + 0.15
+      const topX = sx + (u - v) * TW / 2
+      const topY = sy + (u + v) * TH / 2
+      isoFlat(ctx, topX, topY, sub_TW, sub_TH,
+        (r + c) % 2 === 0 ? '#558b2f' : '#8bc34a', null)
+    }
+  }
+}
+
+// Green bike-lane dash alongside a road tile's centre line
+function drawBikeLane(ctx, sx, sy, TW, TH) {
+  ctx.save()
+  ctx.globalAlpha = 0.65
+  ctx.strokeStyle = '#27ae60'; ctx.lineWidth = 2
+  ctx.setLineDash([3, 4])
+  ctx.beginPath()
+  ctx.moveTo(sx - TW * 0.14, sy + TH * 0.48)
+  ctx.lineTo(sx - TW * 0.14, sy + TH * 0.98)
+  ctx.stroke()
+  ctx.setLineDash([])
+  ctx.restore()
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // ISOMETRIC DRAWING PRIMITIVES
 // ═══════════════════════════════════════════════════════════════════
 
@@ -283,11 +394,12 @@ function isoPerson(ctx, sx, sy, shirtColor, pantsColor, variant) {
 const GS = 12  // grid size (12×12 tiles)
 
 export class CityScene {
-  constructor(canvas, themeId, scores) {
+  constructor(canvas, themeId, scores, inputs) {
     this.canvas  = canvas
     this.ctx     = canvas.getContext('2d')
     this.pal     = THEME_PALETTES[themeId] || THEME_PALETTES.ecology
     this.scores  = scores || {}
+    this.inputs  = inputs || {}
     this.t       = 0
     this.animId  = null
     this.TW = 52; this.TH = 26; this.ox = 0; this.oy = 0
@@ -351,7 +463,8 @@ export class CityScene {
           const h = ((gx * 13 + gy * 7) % 17) / 17
           const boxH = Math.max(8, Math.round(baseH + h * 22))
           const colorIdx = (gx * 3 + gy * 7) % pal.buildings.length
-          tiles.push({ gx, gy, type: 'building', boxH, colorIdx })
+          tiles.push({ gx, gy, type: 'building', boxH,
+                       currentBoxH: boxH, targetBoxH: boxH, colorIdx })
         }
       }
     }
@@ -407,11 +520,47 @@ export class CityScene {
     }))
   }
 
+  // ── Live update: recompute target heights, animate toward them ──
+  updateScores(newScores) {
+    this.scores = newScores
+    const density = (newScores.L  || 50) / 100
+    const econ    = (newScores.Ec || 50) / 100
+    const cx = GS / 2, cy = GS / 2
+    for (const tile of this.tiles) {
+      if (tile.type !== 'building') continue
+      const dist        = Math.sqrt((tile.gx - cx) ** 2 + (tile.gy - cy) ** 2)
+      const centrality  = 1 - dist / (Math.sqrt(2) * cx)
+      const baseH       = 10 + centrality * (25 + density * 35 + econ * 25)
+      const h           = ((tile.gx * 13 + tile.gy * 7) % 17) / 17
+      tile.targetBoxH   = Math.max(8, Math.round(baseH + h * 22))
+    }
+  }
+
+  updateInputs(newInputs) {
+    this.inputs = { ...newInputs }
+  }
+
   start() { this._loop() }
   stop()  { if (this.animId) cancelAnimationFrame(this.animId); this.animId = null }
-  resize() { this._resize(); this.tiles = this._buildGrid(); this.people = this._buildPeople(); this.clouds = this._buildClouds() }
+  resize() {
+    this._resize()
+    this.tiles   = this._buildGrid()
+    this.people  = this._buildPeople()
+    this.clouds  = this._buildClouds()
+  }
 
-  _loop() { this.t++; this._draw(); this.animId = requestAnimationFrame(() => this._loop()) }
+  _loop() {
+    this.t++
+    // Lerp building heights toward their targets each frame
+    for (const tile of this.tiles) {
+      if (tile.type !== 'building') continue
+      const delta = tile.targetBoxH - tile.currentBoxH
+      if (Math.abs(delta) < 0.4) { tile.currentBoxH = tile.targetBoxH; continue }
+      tile.currentBoxH += delta * 0.07
+    }
+    this._draw()
+    this.animId = requestAnimationFrame(() => this._loop())
+  }
 
   _draw() {
     const { ctx, canvas, TW, TH, pal, t } = this
@@ -452,8 +601,10 @@ export class CityScene {
     }
 
     // Isometric tiles (back → front)
+    const inp = this.inputs
     for (const tile of this.tiles) {
       const { x: sx, y: sy } = this._screenPos(tile.gx, tile.gy)
+      const tileHash = (tile.gx * 17 + tile.gy * 11) % 100
 
       if (tile.type === 'road') {
         isoFlat(ctx, sx, sy, TW, TH, pal.road, 'rgba(0,0,0,0.07)')
@@ -466,21 +617,40 @@ export class CityScene {
           ctx.moveTo(sx, sy + TH * 0.5); ctx.lineTo(sx, sy + TH); ctx.stroke()
           ctx.setLineDash([]); ctx.restore()
         }
+        // Bike lane overlay
+        const bikeVal = inp.cycling_coverage || 0
+        if (bikeVal > 35 && tile.gx % 4 === 0 && tileHash < (bikeVal - 35) * 1.5) {
+          drawBikeLane(ctx, sx, sy, TW, TH)
+        }
       } else if (tile.type === 'park') {
         isoFlat(ctx, sx, sy, TW, TH, pal.parkGrass, 'rgba(0,0,0,0.05)')
-        isoTree(ctx, sx, sy, TW, pal)
+        const windVal   = inp.wind_energy || 0
+        const gardenVal = inp.urban_farming_eco || inp.urban_ag_coverage || 0
+        const parkHash  = (tile.gx * 7 + tile.gy * 13) % 100
+        if (windVal > 25 && parkHash < (windVal - 25) * 1.1 && parkHash % 4 === 0) {
+          drawWindTurbine(ctx, sx, sy, TW, TH, t)
+        } else if (gardenVal > 30 && parkHash >= 40 && parkHash < 40 + (gardenVal - 30) * 1.3) {
+          drawUrbanGarden(ctx, sx, sy, TW, TH)
+        } else {
+          isoTree(ctx, sx, sy, TW, pal)
+        }
       } else {
+        const bh = Math.max(1, Math.round(tile.currentBoxH))
         // Ground base
         isoFlat(ctx, sx, sy, TW, TH, pal.ground, 'rgba(0,0,0,0.04)')
         const color = pal.buildings[tile.colorIdx]
-        isoBox(ctx, sx, sy, TW, TH, tile.boxH, color)
+        isoBox(ctx, sx, sy, TW, TH, bh, color)
         // Window grid
-        if (tile.boxH > 14 && TW > 36) {
-          isoWindows(ctx, sx, sy, TW, TH, tile.boxH, pal.windowLit, pal.windowDark, t)
+        if (bh > 14 && TW > 36) {
+          isoWindows(ctx, sx, sy, TW, TH, bh, pal.windowLit, pal.windowDark, t)
         }
-        // Rooftop accent (small coloured rectangle on the roof face)
-        if (tile.boxH > 20) {
-          const roofCx = sx, roofCy = sy - tile.boxH
+        // Solar panels on rooftop
+        const solarVal = inp.solar_coverage || 0
+        if (solarVal > 30 && bh > 14 && tileHash < (solarVal - 30) * 1.4) {
+          drawSolarPanels(ctx, sx, sy, TW, TH, bh)
+        } else if (bh > 20) {
+          // Rooftop accent (small coloured diamond on the roof face)
+          const roofCx = sx, roofCy = sy - bh
           ctx.fillStyle = shade(color, 0.8)
           ctx.beginPath()
           ctx.moveTo(roofCx,            roofCy + TH*0.4)
@@ -489,6 +659,10 @@ export class CityScene {
           ctx.lineTo(roofCx - TW*0.18,  roofCy + TH*0.5 + TH*0.4*0.5)
           ctx.closePath()
           ctx.fill()
+        }
+        // Construction scaffold when the building is actively growing
+        if (tile.targetBoxH > tile.currentBoxH + 5) {
+          drawScaffold(ctx, sx, sy - bh, TW, t)
         }
       }
     }

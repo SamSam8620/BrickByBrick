@@ -42,8 +42,9 @@ function initAllDefaults() {
 
 initAllDefaults()
 
-// ─── Scene reference ──────────────────────────────────────────────
-let cityScene = null
+// ─── Scene references ────────────────────────────────────────────
+let cityScene         = null   // Step 4: final city view
+let configPreviewScene = null  // Step 3: live config preview
 
 // ─── Entry Point ─────────────────────────────────────────────────
 export function init() {
@@ -54,6 +55,16 @@ export function init() {
 function showStep(step) {
   state.step = step
   const app = document.getElementById('app')
+
+  // Clean up step-specific resources before clearing DOM
+  const screen = app.firstElementChild
+  if (screen?._pixelMap) screen._pixelMap.destroy()
+  if (configPreviewScene) {
+    configPreviewScene.stop()
+    configPreviewScene = null
+    window.removeEventListener('resize', _onConfigResize)
+  }
+
   app.innerHTML = ''
 
   if (step === 'map') {
@@ -66,18 +77,29 @@ function showStep(step) {
     runAutoConfig()
     buildConfigScreen(app, state, onConfigInputChange, onConfigBack, onBuildCity)
 
+    // Mount live isometric city preview on the config canvas
+    const configCanvas = document.getElementById('config-scene-canvas')
+    if (configCanvas) {
+      const liveScores = computeScores(state.allResponses)
+      configPreviewScene = new CityScene(configCanvas, state.activeThemeId, liveScores, state.primaryInputs)
+      configPreviewScene.start()
+      updateScoreHud(liveScores)
+      window.addEventListener('resize', _onConfigResize)
+    }
+
   } else if (step === 'city') {
     buildCityLayout(app)
     initCity()
   }
 }
 
+function _onConfigResize() {
+  if (configPreviewScene) configPreviewScene.resize()
+}
+
 // ─── Map Screen Handlers ─────────────────────────────────────────
 function onCityTypeSelect(id) {
   state.cityTypeId = id
-  document.querySelectorAll('.city-type-card').forEach(c => {
-    c.classList.toggle('selected', c.dataset.id === id)
-  })
   const btn = document.getElementById('map-continue-btn')
   if (btn) btn.disabled = false
 }
@@ -112,6 +134,21 @@ function onConfigInputChange(id, value) {
   state.primaryInputs[id] = value
   runAutoConfig()
   updateConfigPreview()
+  const liveScores = computeScores(state.allResponses)
+  if (configPreviewScene) {
+    configPreviewScene.updateScores(liveScores)
+    configPreviewScene.updateInputs(state.primaryInputs)
+  }
+  updateScoreHud(liveScores)
+}
+
+function updateScoreHud(scores) {
+  for (const [axisId, val] of Object.entries(scores)) {
+    const bar = document.getElementById(`hud-bar-${axisId}`)
+    const num = document.getElementById(`hud-num-${axisId}`)
+    if (bar) bar.style.width = Math.round(val) + '%'
+    if (num) num.textContent  = Math.round(val)
+  }
 }
 
 function onConfigBack() {

@@ -3,6 +3,7 @@
 // ─────────────────────────────────────────────────────────────────
 import { THEMES, CITY_TYPES, AXES } from './data.js'
 import { SunburstChart } from './sunburst.js'
+import { PixelMap } from './pixelMap.js'
 
 // ═══════════════════════════════════════════════════════════════════
 // SCREEN 1 — City Type Map
@@ -10,10 +11,10 @@ import { SunburstChart } from './sunburst.js'
 export function buildMapScreen(app, state, onSelect, onContinue) {
   const screen = el('div', 'wb-screen map-screen')
   screen.innerHTML = `
-    <div class="wb-hero">
+    <div class="wb-hero compact">
       <div class="wb-logo">Brick by Brick</div>
       <h1 class="wb-title">World Builder</h1>
-      <p class="wb-subtitle">Choose where your city will rise — geography shapes everything</p>
+      <p class="wb-subtitle">Click a location on the map to choose your city's geography</p>
     </div>
     <div class="wb-steps">
       <div class="wb-step active"><span>1</span> Geography</div>
@@ -24,7 +25,10 @@ export function buildMapScreen(app, state, onSelect, onContinue) {
       <div class="wb-step-arrow">›</div>
       <div class="wb-step"><span>4</span> Your City</div>
     </div>
-    <div class="city-type-grid" id="city-type-grid"></div>
+    <div class="pixel-map-wrap" id="pixel-map-wrap"></div>
+    <div class="map-info-bar" id="map-info-bar">
+      <span class="mib-hint">&#8593; Click a city pin on the map to begin</span>
+    </div>
     <div class="wb-footer">
       <button class="wb-btn wb-btn-primary" id="map-continue-btn" disabled>
         Choose Your Expertise &rsaquo;
@@ -33,32 +37,43 @@ export function buildMapScreen(app, state, onSelect, onContinue) {
   `
   app.appendChild(screen)
 
-  const grid = document.getElementById('city-type-grid')
-  for (const ct of CITY_TYPES) {
-    const card = el('div', 'city-type-card')
-    card.dataset.id = ct.id
-    card.style.background = ct.gradient
-    card.innerHTML = `
-      <div class="ct-emoji">${ct.emoji}</div>
-      <div class="ct-info">
-        <div class="ct-name">${ct.name}</div>
-        <div class="ct-desc">${ct.description}</div>
+  const wrap = screen.querySelector('#pixel-map-wrap')
+  const pixelMap = new PixelMap(wrap, (id) => {
+    onSelect(id)
+    const ct = CITY_TYPES.find(c => c.id === id)
+    screen.querySelector('#map-info-bar').innerHTML = `
+      <div class="mib-selected">
+        <span class="mib-emoji">${ct.emoji}</span>
+        <div class="mib-text">
+          <div class="mib-name">${ct.name}</div>
+          <div class="mib-desc">${ct.description}</div>
+        </div>
       </div>
     `
-    card.addEventListener('click', () => onSelect(ct.id))
-    grid.appendChild(card)
-  }
+    screen.querySelector('#map-continue-btn').disabled = false
+  })
 
-  document.getElementById('map-continue-btn')
-    .addEventListener('click', onContinue)
+  screen.querySelector('#map-continue-btn').addEventListener('click', onContinue)
 
   if (state.cityTypeId) {
-    const card = document.querySelector(`.city-type-card[data-id="${state.cityTypeId}"]`)
-    if (card) {
-      card.classList.add('selected')
-      document.getElementById('map-continue-btn').disabled = false
+    pixelMap.select(state.cityTypeId)
+    const ct = CITY_TYPES.find(c => c.id === state.cityTypeId)
+    if (ct) {
+      screen.querySelector('#map-info-bar').innerHTML = `
+        <div class="mib-selected">
+          <span class="mib-emoji">${ct.emoji}</span>
+          <div class="mib-text">
+            <div class="mib-name">${ct.name}</div>
+            <div class="mib-desc">${ct.description}</div>
+          </div>
+        </div>
+      `
+      screen.querySelector('#map-continue-btn').disabled = false
     }
   }
+
+  // Expose destroy so app.js can clean up the RAF loop
+  screen._pixelMap = pixelMap
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -169,16 +184,25 @@ export function buildConfigScreen(app, state, onInputChange, onBack, onBuild) {
         <div class="sunburst-wrap" id="sunburst-container"></div>
       </div>
 
-      <!-- Right: preview -->
-      <div class="config-preview-col">
+      <!-- Right: live isometric city preview -->
+      <div class="config-city-col">
         <div class="preview-header">
-          <div class="preview-title">City-Wide Impact</div>
-          <div class="preview-subtitle">How your choices propagate to the other 11 themes</div>
+          <div class="preview-title">Live City Preview</div>
+          <div class="preview-subtitle">Buildings construct in real time as you adjust inputs</div>
         </div>
-        <div class="preview-list" id="preview-list"></div>
-        <div class="preview-note">
-          Values auto-configure based on your inputs and city geography.
-          You can always redesign later.
+        <div class="config-canvas-wrap">
+          <canvas id="config-scene-canvas"></canvas>
+          <div class="score-hud" id="score-hud">
+            ${AXES.map(a => `
+              <div class="sh-row">
+                <span class="sh-label" style="color:${a.color}">${a.id}</span>
+                <div class="sh-bar-wrap">
+                  <div class="sh-bar" id="hud-bar-${a.id}" style="width:50%;background:${a.color}"></div>
+                </div>
+                <span class="sh-val" id="hud-num-${a.id}">50</span>
+              </div>
+            `).join('')}
+          </div>
         </div>
       </div>
 
@@ -207,26 +231,6 @@ export function buildConfigScreen(app, state, onInputChange, onBack, onBuild) {
     theme.color,
     theme.icon,
   )
-
-  // Preview list for the other 11 themes
-  const previewList = document.getElementById('preview-list')
-  const otherThemes = THEMES.filter(t => t.id !== state.activeThemeId)
-  for (const t of otherThemes) {
-    const score = state.themeScores[t.id] ?? 50
-    const item  = el('div', 'preview-item')
-    item.innerHTML = `
-      <div class="preview-item-left">
-        <span class="preview-item-icon">${t.icon}</span>
-        <span class="preview-item-name">${t.name}</span>
-      </div>
-      <div class="preview-bar-wrap">
-        <div class="preview-bar" id="preview-bar-${t.id}"
-          style="width:${score}%; background:${t.color}"></div>
-      </div>
-      <span class="preview-item-val" id="preview-val-${t.id}">${score}</span>
-    `
-    previewList.appendChild(item)
-  }
 
   document.getElementById('config-back-btn').addEventListener('click', onBack)
   document.getElementById('config-build-btn').addEventListener('click', onBuild)
