@@ -32,13 +32,13 @@ export function generateCityGrid(responses) {
   const cy = GRID / 2
   const grid = []
 
-  const parkScore  = (responses.park_per_capita ?? 50) / 100
-  const indScore   = (responses.industrial_land ?? 25) / 100
-  const mixScore   = (responses.mixed_use_ratio ?? 55) / 100
-  const density    = (responses.residential_density ?? 40) / 100
-  const height     = (responses.building_height ?? 30) / 100
-  const far        = (responses.floor_area_ratio ?? 35) / 100
-  const greenRoof  = (responses.green_roofs ?? 50) > 50
+  const parkScore  = (responses.green_coverage      ?? 50) / 100
+  const indScore   = (100 - (responses.economic_diversity ?? 55)) / 200
+  const mixScore   = (responses.mixed_income         ?? 55) / 100
+  const density    = (responses.housing_density      ?? 45) / 100
+  const height     = ((responses.housing_density ?? 45) + (responses.innovation_hubs ?? 35)) / 200
+  const far        = (responses.housing_density      ?? 45) / 100
+  const greenRoof  = (responses.building_efficiency  ?? 50) > 60
 
   for (let x = 0; x < GRID; x++) {
     grid[x] = []

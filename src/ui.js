@@ -1,239 +1,403 @@
 // ─────────────────────────────────────────────────────────────────
-// ui.js  —  DOM panel builders
+// ui.js  —  All screen builders: Map, Theme, Config, City View
 // ─────────────────────────────────────────────────────────────────
-import { THEMES, INPUTS, AXES, GLOBAL_PARAMS } from './data.js'
+import { THEMES, CITY_TYPES, AXES } from './data.js'
+import { SunburstChart } from './sunburst.js'
 
-// ─── Top Bar ─────────────────────────────────────────────────────
-export function buildTopBar(state, onViewChange, onGenerate, onConfigChange) {
+// ═══════════════════════════════════════════════════════════════════
+// SCREEN 1 — City Type Map
+// ═══════════════════════════════════════════════════════════════════
+export function buildMapScreen(app, state, onSelect, onContinue) {
+  const screen = el('div', 'wb-screen map-screen')
+  screen.innerHTML = `
+    <div class="wb-hero">
+      <div class="wb-logo">Brick by Brick</div>
+      <h1 class="wb-title">World Builder</h1>
+      <p class="wb-subtitle">Choose where your city will rise — geography shapes everything</p>
+    </div>
+    <div class="wb-steps">
+      <div class="wb-step active"><span>1</span> Geography</div>
+      <div class="wb-step-arrow">›</div>
+      <div class="wb-step"><span>2</span> Theme</div>
+      <div class="wb-step-arrow">›</div>
+      <div class="wb-step"><span>3</span> Configure</div>
+      <div class="wb-step-arrow">›</div>
+      <div class="wb-step"><span>4</span> Your City</div>
+    </div>
+    <div class="city-type-grid" id="city-type-grid"></div>
+    <div class="wb-footer">
+      <button class="wb-btn wb-btn-primary" id="map-continue-btn" disabled>
+        Choose Your Expertise &rsaquo;
+      </button>
+    </div>
+  `
+  app.appendChild(screen)
+
+  const grid = document.getElementById('city-type-grid')
+  for (const ct of CITY_TYPES) {
+    const card = el('div', 'city-type-card')
+    card.dataset.id = ct.id
+    card.style.background = ct.gradient
+    card.innerHTML = `
+      <div class="ct-emoji">${ct.emoji}</div>
+      <div class="ct-info">
+        <div class="ct-name">${ct.name}</div>
+        <div class="ct-desc">${ct.description}</div>
+      </div>
+    `
+    card.addEventListener('click', () => onSelect(ct.id))
+    grid.appendChild(card)
+  }
+
+  document.getElementById('map-continue-btn')
+    .addEventListener('click', onContinue)
+
+  if (state.cityTypeId) {
+    const card = document.querySelector(`.city-type-card[data-id="${state.cityTypeId}"]`)
+    if (card) {
+      card.classList.add('selected')
+      document.getElementById('map-continue-btn').disabled = false
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SCREEN 2 — Theme Selection
+// ═══════════════════════════════════════════════════════════════════
+export function buildThemeScreen(app, state, onSelect, onBack, onContinue) {
+  const ct = CITY_TYPES.find(c => c.id === state.cityTypeId)
+
+  const screen = el('div', 'wb-screen theme-screen')
+  screen.innerHTML = `
+    <div class="wb-hero compact">
+      <div class="wb-logo">Brick by Brick</div>
+      <div class="city-badge" style="background:${ct?.gradient || '#1a2540'}">
+        <span>${ct?.emoji || '🏙'}</span> ${ct?.name || 'Your City'}
+      </div>
+      <h1 class="wb-title">Choose Your Expertise</h1>
+      <p class="wb-subtitle">You master one domain — the rest of the city adapts around your decisions</p>
+    </div>
+    <div class="wb-steps">
+      <div class="wb-step done"><span>✓</span> Geography</div>
+      <div class="wb-step-arrow">›</div>
+      <div class="wb-step active"><span>2</span> Theme</div>
+      <div class="wb-step-arrow">›</div>
+      <div class="wb-step"><span>3</span> Configure</div>
+      <div class="wb-step-arrow">›</div>
+      <div class="wb-step"><span>4</span> Your City</div>
+    </div>
+    <div class="theme-pick-grid" id="theme-pick-grid"></div>
+    <div class="wb-footer">
+      <button class="wb-btn wb-btn-ghost" id="theme-back-btn">‹ Back</button>
+      <button class="wb-btn wb-btn-primary" id="theme-continue-btn" disabled>
+        Configure Theme &rsaquo;
+      </button>
+    </div>
+  `
+  app.appendChild(screen)
+
+  const grid = document.getElementById('theme-pick-grid')
+  for (const theme of THEMES) {
+    const card = el('div', 'theme-pick-card')
+    card.dataset.id = theme.id
+    card.innerHTML = `
+      <div class="tp-icon" style="background:${theme.color}22; border:1.5px solid ${theme.color}44; color:${theme.color}">
+        ${theme.icon}
+      </div>
+      <div class="tp-info">
+        <div class="tp-name">${theme.name}</div>
+        <div class="tp-desc">${theme.description}</div>
+        <div class="tp-count">8 parameters to configure</div>
+      </div>
+    `
+    card.addEventListener('click', () => onSelect(theme.id))
+    grid.appendChild(card)
+  }
+
+  document.getElementById('theme-back-btn').addEventListener('click', onBack)
+  document.getElementById('theme-continue-btn').addEventListener('click', onContinue)
+
+  if (state.activeThemeId) {
+    const card = document.querySelector(`.theme-pick-card[data-id="${state.activeThemeId}"]`)
+    if (card) {
+      card.classList.add('selected')
+      document.getElementById('theme-continue-btn').disabled = false
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SCREEN 3 — Theme Configuration (Sunburst chart)
+// ═══════════════════════════════════════════════════════════════════
+export function buildConfigScreen(app, state, onInputChange, onBack, onBuild) {
+  const theme = THEMES.find(t => t.id === state.activeThemeId)
+  const ct    = CITY_TYPES.find(c => c.id === state.cityTypeId)
+  if (!theme) return
+
+  const screen = el('div', 'wb-screen config-screen')
+  screen.innerHTML = `
+    <div class="wb-steps config-steps">
+      <div class="wb-step done"><span>✓</span> Geography</div>
+      <div class="wb-step-arrow">›</div>
+      <div class="wb-step done"><span>✓</span> Theme</div>
+      <div class="wb-step-arrow">›</div>
+      <div class="wb-step active"><span>3</span> Configure</div>
+      <div class="wb-step-arrow">›</div>
+      <div class="wb-step"><span>4</span> Your City</div>
+    </div>
+
+    <div class="config-layout">
+
+      <!-- Left: sunburst chart -->
+      <div class="config-inputs-col">
+        <div class="config-theme-header">
+          <div class="config-theme-icon" style="background:${theme.color}22; color:${theme.color}; border:1.5px solid ${theme.color}55">
+            ${theme.icon}
+          </div>
+          <div>
+            <div class="config-theme-name">${theme.name}</div>
+            <div class="config-theme-desc">${theme.description}</div>
+          </div>
+        </div>
+        <div class="config-city-badge">
+          <span>${ct?.emoji || ''}</span>
+          <span>${ct?.name || 'Your City'}</span>
+        </div>
+        <div class="sunburst-hint">
+          Drag each segment inward or outward to set its value
+        </div>
+        <div class="sunburst-wrap" id="sunburst-container"></div>
+      </div>
+
+      <!-- Right: preview -->
+      <div class="config-preview-col">
+        <div class="preview-header">
+          <div class="preview-title">City-Wide Impact</div>
+          <div class="preview-subtitle">How your choices propagate to the other 11 themes</div>
+        </div>
+        <div class="preview-list" id="preview-list"></div>
+        <div class="preview-note">
+          Values auto-configure based on your inputs and city geography.
+          You can always redesign later.
+        </div>
+      </div>
+
+    </div>
+
+    <div class="wb-footer config-footer">
+      <button class="wb-btn wb-btn-ghost" id="config-back-btn">‹ Back</button>
+      <div class="config-footer-info">
+        <span class="config-footer-label">${theme.name} →</span>
+        <span class="config-footer-sub">11 themes auto-configured</span>
+      </div>
+      <button class="wb-btn wb-btn-build" id="config-build-btn">
+        Build My City &rsaquo;
+      </button>
+    </div>
+  `
+  app.appendChild(screen)
+
+  // Instantiate SunburstChart in place of sliders
+  const container = document.getElementById('sunburst-container')
+  new SunburstChart(
+    container,
+    theme.inputs,
+    state.primaryInputs,
+    (id, value) => onInputChange(id, value),
+    theme.color,
+    theme.icon,
+  )
+
+  // Preview list for the other 11 themes
+  const previewList = document.getElementById('preview-list')
+  const otherThemes = THEMES.filter(t => t.id !== state.activeThemeId)
+  for (const t of otherThemes) {
+    const score = state.themeScores[t.id] ?? 50
+    const item  = el('div', 'preview-item')
+    item.innerHTML = `
+      <div class="preview-item-left">
+        <span class="preview-item-icon">${t.icon}</span>
+        <span class="preview-item-name">${t.name}</span>
+      </div>
+      <div class="preview-bar-wrap">
+        <div class="preview-bar" id="preview-bar-${t.id}"
+          style="width:${score}%; background:${t.color}"></div>
+      </div>
+      <span class="preview-item-val" id="preview-val-${t.id}">${score}</span>
+    `
+    previewList.appendChild(item)
+  }
+
+  document.getElementById('config-back-btn').addEventListener('click', onBack)
+  document.getElementById('config-build-btn').addEventListener('click', onBuild)
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CITY VIEW — Top Bar
+// ═══════════════════════════════════════════════════════════════════
+export function buildCityTopBar(state, onRedesign) {
   const bar = document.getElementById('topbar')
   bar.innerHTML = ''
 
-  // Brand
+  const theme = THEMES.find(t => t.id === state.activeThemeId)
+  const ct    = CITY_TYPES.find(c => c.id === state.cityTypeId)
+
   const brand = el('div', 'brand')
-  brand.innerHTML = `<span class="brand-name">Brick by Brick</span><span class="brand-sub">Adaptive City Model</span>`
+  brand.innerHTML = `<span class="brand-name">Brick by Brick</span><span class="brand-sub">World Builder</span>`
   bar.appendChild(brand)
 
   bar.appendChild(sep())
 
-  // Global config selectors
-  for (const param of GLOBAL_PARAMS) {
-    const group = el('div', 'config-group')
-    const label = el('span', 'config-label')
-    label.textContent = param.label
-    const sel = document.createElement('select')
-    for (const opt of param.options) {
-      const o = document.createElement('option')
-      o.value = opt.value
-      o.textContent = opt.label
-      if (opt.value === state.config[param.id]) o.selected = true
-      sel.appendChild(o)
-    }
-    sel.addEventListener('change', () => onConfigChange(param.id, sel.value))
-    group.appendChild(label)
-    group.appendChild(sel)
-    bar.appendChild(group)
+  if (ct) {
+    const badge = el('div', 'city-info-badge')
+    badge.innerHTML = `<span>${ct.emoji}</span><span>${ct.name}</span>`
+    bar.appendChild(badge)
   }
 
-  bar.appendChild(sep())
-
-  // View toggle
-  const vt = el('div', 'view-toggle')
-  for (const v of ['2d', '3d']) {
-    const btn = el('button', 'view-btn' + (state.view === v ? ' active' : ''))
-    btn.textContent = v.toUpperCase()
-    btn.dataset.view = v
-    btn.addEventListener('click', () => onViewChange(v))
-    vt.appendChild(btn)
+  if (theme) {
+    const tbadge = el('div', 'theme-info-badge')
+    tbadge.style.borderColor = theme.color + '55'
+    tbadge.style.color = theme.color
+    tbadge.innerHTML = `<span>${theme.icon}</span><span>${theme.name} Focus</span>`
+    bar.appendChild(tbadge)
   }
-  bar.appendChild(vt)
 
   bar.appendChild(el('div', 'spacer'))
 
-  // Generate button
-  const gen = el('button', 'gen-btn' + (state.generating ? ' loading' : ''))
-  gen.id = 'gen-btn'
-  gen.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>${state.generating ? 'Generating…' : 'Generate City'}`
-  gen.addEventListener('click', onGenerate)
-  bar.appendChild(gen)
+  const redesign = el('button', 'redesign-btn')
+  redesign.textContent = '↩ Redesign'
+  redesign.addEventListener('click', onRedesign)
+  bar.appendChild(redesign)
 }
 
-// ─── Left Panel ───────────────────────────────────────────────────
-export function buildLeftPanel(state, onInputChange, onThemeChange) {
+// ═══════════════════════════════════════════════════════════════════
+// CITY VIEW — Left Panel (Theme Summary)
+// ═══════════════════════════════════════════════════════════════════
+export function buildLeftSummaryPanel(state, onCustomizeToggle, onThemeScoreChange) {
   const panel = document.getElementById('panel-left')
   panel.innerHTML = ''
 
+  const theme = THEMES.find(t => t.id === state.activeThemeId)
+  if (!theme) return
+
   const header = el('div', 'panel-header')
-  header.innerHTML = `<div class="panel-title">City Inputs — ${INPUTS.length} parameters</div>`
+  header.innerHTML = `
+    <div class="panel-title" style="color:${theme.color}">
+      ${theme.icon} ${theme.name}
+    </div>
+    <div class="panel-subtitle">Your mastered theme — locked</div>
+  `
   panel.appendChild(header)
 
-  // Theme tab bar
-  const tabs = el('div', 'theme-tabs')
-  const allTab = el('button', 'theme-tab' + (state.activeTheme === 'all' ? ' active' : ''))
-  allTab.textContent = 'All'
-  allTab.addEventListener('click', () => onThemeChange('all'))
-  tabs.appendChild(allTab)
-
-  for (const theme of THEMES) {
-    const tab = el('button', 'theme-tab' + (state.activeTheme === theme.id ? ' active' : ''))
-    tab.textContent = theme.label.split(' ')[0]
-    tab.style.color = theme.color
-    tab.addEventListener('click', () => onThemeChange(theme.id))
-    tabs.appendChild(tab)
-  }
-  panel.appendChild(tabs)
-
-  // Scrollable inputs
   const scroll = el('div', 'inputs-scroll')
   panel.appendChild(scroll)
 
-  const activeThemes = state.activeTheme === 'all'
-    ? THEMES
-    : THEMES.filter(t => t.id === state.activeTheme)
+  // ── Primary inputs (locked) ──────────────────────────────────────
+  const secHeader = el('div', 'theme-section-header')
+  secHeader.innerHTML = `<span class="theme-dot" style="background:${theme.color}"></span> Your 8 Configured Inputs`
+  scroll.appendChild(secHeader)
 
-  for (const theme of activeThemes) {
-    const inputs = INPUTS.filter(i => i.theme === theme.id)
-    if (!inputs.length) continue
+  for (const inp of theme.inputs) {
+    const val = state.primaryInputs[inp.id] ?? inp.default
+    const row = el('div', 'summary-input-row')
+    const pct = val / 100
+    const barColor = pct > 0.65 ? theme.color : pct > 0.35 ? '#FFA726' : '#ef5350'
+    row.innerHTML = `
+      <div class="si-top">
+        <span class="si-label">${inp.label}</span>
+        <span class="si-value" style="color:${barColor}">${val}${inp.unit ? ' ' + inp.unit : ''}</span>
+      </div>
+      <div class="si-bar-wrap">
+        <div class="si-bar" style="width:${val}%; background:${barColor}"></div>
+      </div>
+    `
+    row.title = inp.description
+    scroll.appendChild(row)
+  }
 
-    const section = el('div', 'theme-section')
+  // ── Auto-configured themes ────────────────────────────────────────
+  const secHeader2 = el('div', 'theme-section-header')
+  secHeader2.style.marginTop = '10px'
 
-    // Theme header
-    const th = el('div', 'theme-section-header')
-    const dot = el('span', 'theme-dot')
-    dot.style.background = theme.color
-    th.appendChild(dot)
-    th.appendChild(text(theme.label))
-    section.appendChild(th)
+  const customizeBtn = el('button', 'customize-themes-btn' + (state.customizingThemes ? ' active' : ''))
+  customizeBtn.textContent = state.customizingThemes ? '✓ Done' : '✏ Customize'
+  customizeBtn.addEventListener('click', onCustomizeToggle)
 
-    // Group by category
-    const cats = [...new Set(inputs.map(i => i.category))]
-    for (const cat of cats) {
-      const catInputs = inputs.filter(i => i.category === cat)
-      const group = el('div', 'category-group')
-      const catLabel = el('div', 'category-label')
-      catLabel.textContent = cat
-      group.appendChild(catLabel)
+  secHeader2.innerHTML = `<span class="theme-dot" style="background:#78909C"></span> Auto-Configured Themes`
+  secHeader2.appendChild(customizeBtn)
+  scroll.appendChild(secHeader2)
 
-      for (const inp of catInputs) {
-        const hasFault = state.faults.some(f =>
-          f.desc?.toLowerCase().includes(inp.label.toLowerCase()) ||
-          (inp.objective >= 0.8 && (state.responses[inp.id] ?? inp.default) < 30)
-        )
+  const otherThemes = THEMES.filter(t => t.id !== state.activeThemeId)
+  for (const t of otherThemes) {
+    const score = state.themeScores[t.id] ?? 50
+    const row   = el('div', 'auto-theme-row')
 
-        if (inp.type === 'toggle') {
-          const row = el('div', 'toggle-row' + (hasFault ? ' input-row has-fault' : ' input-row'))
-          row.title = inp.description
-
-          const lbl = el('span', 'input-label')
-          lbl.textContent = inp.label
-
-          const sw = el('label', 'toggle-switch')
-          const chk = document.createElement('input')
-          chk.type = 'checkbox'
-          chk.checked = (state.responses[inp.id] ?? inp.default) > 50
-          chk.addEventListener('change', () => onInputChange(inp.id, chk.checked ? 100 : 0))
-          const slider = el('span', 'toggle-slider')
-          sw.appendChild(chk)
-          sw.appendChild(slider)
-
-          row.appendChild(lbl)
-          row.appendChild(sw)
-          group.appendChild(row)
-        } else {
-          const row = el('div', 'input-row' + (hasFault ? ' has-fault' : ''))
-          row.title = inp.description
-
-          const meta = el('div', 'input-meta')
-          const lbl = el('span', 'input-label')
-          lbl.textContent = inp.label
-          const val = el('span', 'input-value')
-          const curVal = state.responses[inp.id] ?? inp.default
-          val.textContent = curVal + (inp.unit ? ' ' + inp.unit : '')
-
-          meta.appendChild(lbl)
-          meta.appendChild(val)
-
-          const range = document.createElement('input')
-          range.type = 'range'
-          range.min = inp.min
-          range.max = inp.max
-          range.step = inp.step
-          range.value = curVal
-
-          range.addEventListener('input', () => {
-            val.textContent = range.value + (inp.unit ? ' ' + inp.unit : '')
-            onInputChange(inp.id, Number(range.value))
-          })
-
-          row.appendChild(meta)
-          row.appendChild(range)
-          group.appendChild(row)
-        }
-      }
-      section.appendChild(group)
+    if (state.customizingThemes) {
+      row.classList.add('customizing')
+      row.innerHTML = `
+        <span class="at-icon">${t.icon}</span>
+        <span class="at-name">${t.name}</span>
+        <input type="range" class="at-slider" min="15" max="88" step="1" value="${score}" />
+        <span class="at-val" id="at-val-${t.id}" style="color:${t.color}">${score}</span>
+      `
+      const slider = row.querySelector('.at-slider')
+      slider.style.setProperty('accent-color', t.color)
+      slider.addEventListener('input', (e) => {
+        const v = parseInt(e.target.value)
+        document.getElementById(`at-val-${t.id}`).textContent = v
+        onThemeScoreChange(t.id, v)
+      })
+    } else {
+      row.innerHTML = `
+        <span class="at-icon">${t.icon}</span>
+        <span class="at-name">${t.name}</span>
+        <div class="at-bar-wrap">
+          <div class="at-bar" style="width:${score}%; background:${t.color}55"></div>
+        </div>
+        <span class="at-val" style="color:${t.color}">${score}</span>
+      `
     }
-    scroll.appendChild(section)
+    scroll.appendChild(row)
   }
 }
 
-// ─── Right Panel ──────────────────────────────────────────────────
-export function buildRightPanel(state, radarCanvas) {
+// ═══════════════════════════════════════════════════════════════════
+// CITY VIEW — Right Panel (Scores & Faults)
+// ═══════════════════════════════════════════════════════════════════
+export function buildRightPanel(state) {
   const panel = document.getElementById('panel-right')
   panel.innerHTML = ''
 
   // Overall score
   const overall = el('div', 'overall-score')
-  const num = el('div', 'overall-num')
   const { grade, color } = gradeFor(state.overall)
-  num.textContent = state.overall
-  const lbl = el('div', 'overall-label')
-  lbl.innerHTML = 'Overall<br>City Score'
-  const gradeEl = el('div', 'overall-grade')
-  gradeEl.textContent = grade
-  gradeEl.style.color = color
-  overall.appendChild(num)
-  overall.appendChild(lbl)
-  overall.appendChild(gradeEl)
+  overall.innerHTML = `
+    <div class="overall-num">${state.overall}</div>
+    <div class="overall-label">Overall<br>City Score</div>
+    <div class="overall-grade" style="color:${color}">${grade}</div>
+  `
   panel.appendChild(overall)
-
-  // Radar canvas
-  const rw = el('div', 'radar-wrap')
-  rw.id = 'radar-wrap'
-  rw.appendChild(radarCanvas)
-  panel.appendChild(rw)
 
   // Axis bars
   const list = el('div', 'axis-list')
   for (const ax of AXES) {
     const score = state.scores[ax.id] ?? 0
-    const item = el('div', 'axis-item')
-
-    const dot = el('span', 'axis-dot')
-    dot.style.background = ax.color
-
-    const name = el('span', 'axis-name')
-    name.textContent = ax.label
-
-    const barWrap = el('div', 'axis-bar-wrap')
-    const bar = el('div', 'axis-bar')
-    bar.style.width = score + '%'
-    bar.style.background = ax.color
-    barWrap.appendChild(bar)
-
-    const scoreEl = el('span', 'axis-score')
-    scoreEl.textContent = score
-    scoreEl.style.color = ax.color
-
-    item.appendChild(dot)
-    item.appendChild(name)
-    item.appendChild(barWrap)
-    item.appendChild(scoreEl)
+    const item  = el('div', 'axis-item')
+    item.innerHTML = `
+      <span class="axis-dot" style="background:${ax.color}"></span>
+      <span class="axis-name">${ax.label}</span>
+      <div class="axis-bar-wrap">
+        <div class="axis-bar" style="width:${score}%; background:${ax.color}"></div>
+      </div>
+      <span class="axis-score" style="color:${ax.color}">${score}</span>
+    `
     list.appendChild(item)
   }
   panel.appendChild(list)
 
   // Faults
   const faults = el('div', 'faults-section')
-  const fh = el('div', 'faults-header')
+  const fh     = el('div', 'faults-header')
   fh.textContent = `Issues (${state.faults.length})`
   faults.appendChild(fh)
 
@@ -244,35 +408,19 @@ export function buildRightPanel(state, radarCanvas) {
   } else {
     for (const fault of state.faults) {
       const item = el('div', 'fault-item' + (fault.severity === 'critical' ? ' critical' : ''))
-      const icon = el('div', 'fault-icon')
-      icon.textContent = fault.severity === 'critical' ? '🔴' : '⚠️'
-      const body = el('div', 'fault-body')
-      const title = el('div', 'fault-title')
-      title.textContent = fault.title
-      const desc = el('div', 'fault-desc')
-      desc.textContent = fault.desc
-      body.appendChild(title)
-      body.appendChild(desc)
-      item.appendChild(icon)
-      item.appendChild(body)
+      item.innerHTML = `
+        <div class="fault-icon">${fault.severity === 'critical' ? '🔴' : '⚠️'}</div>
+        <div class="fault-body">
+          <div class="fault-title">${fault.title}</div>
+          <div class="fault-desc">${fault.desc}</div>
+        </div>
+      `
       faults.appendChild(item)
     }
   }
   panel.appendChild(faults)
 }
 
-// ─── Canvas overlay ───────────────────────────────────────────────
-export function buildCanvasOverlay() {
-  const wrap = document.getElementById('canvas-wrap')
-  if (document.querySelector('.canvas-overlay')) return
-
-  const overlay = el('div', 'canvas-overlay')
-  const narrative = el('div', '')
-  narrative.id = 'narrative-box'
-  narrative.innerHTML = '<span style="color:var(--text-muted);font-size:11px;letter-spacing:0.05em">Click <strong style="color:var(--accent)">Generate City</strong> for an AI description of your city →</span>'
-  overlay.appendChild(narrative)
-  wrap.appendChild(overlay)
-}
 
 // ─── Helpers ──────────────────────────────────────────────────────
 function el(tag, cls) {
@@ -280,12 +428,11 @@ function el(tag, cls) {
   if (cls) e.className = cls
   return e
 }
-function text(str) {
-  return document.createTextNode(str)
-}
+
 function sep() {
   return el('div', 'topbar-sep')
 }
+
 function gradeFor(score) {
   if (score >= 90) return { grade: 'A+', color: '#00e676' }
   if (score >= 80) return { grade: 'A',  color: '#66BB6A' }
